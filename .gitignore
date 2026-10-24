@@ -1,0 +1,7 @@
+   *.o
+   *.hi
+   *.dyn_o
+   *.dyn_hi
+   ChatLLaMbda
+   ChatLLaMbda.exe
+   dist-newstyle/
