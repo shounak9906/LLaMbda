@@ -3,6 +3,7 @@
 module Lambek where
 
 import LTypes
+import LExp
 
 -- This is the convention we will use :
 
@@ -50,3 +51,41 @@ typings lex (w:ws) = [ t : ts | t <- typesOf lex w, ts <- typings lex ws ]
 -- checking grammaticality
 isGrammatical :: Lexicon sem -> [String] -> Bool
 isGrammatical lex ws = or [ dec_rinv gamma (stp lex) | gamma <- typings lex ws ]
+
+-- derivations
+
+{- Same search as dec_rinv / dec_lfoc, but every hypothesis now has a
+   variable with it and we collect lambda expressions instead of outpuuting
+   True/False. -}
+
+-- a variable not already used in the context
+freshFor :: [(Var,LTp)] -> Var
+freshFor gamma = fresh [ V x | (x, _) <- gamma ]
+
+der_rinv :: [(Var,LTp)] -> LTp -> [LExp]
+
+der_rinv gamma (DivL a b) = [ L x e | e <- der_rinv ((x, a) : gamma) b ]
+  where x = freshFor gamma
+
+der_rinv gamma (DivR b a) = [ L x e | e <- der_rinv (gamma ++ [(x, a)]) b ]
+  where x = freshFor gamma
+
+der_rinv gamma (Atm p)    = [ foldl A (V x) es | (gl, (x, a), gr) <- picks gamma
+                                               , es <- der_lfoc gl a gr p ]
+
+der_lfoc :: [(Var,LTp)] -> LTp -> [(Var,LTp)] -> Atm -> [[LExp]]
+
+der_lfoc gl (Atm q)    gr p = if null gl && null gr && q == p then [[]] else []
+
+der_lfoc gl (DivL a b) gr p = [ e : es | (gl1, gl2) <- splits gl
+                                       , e  <- der_rinv gl2 a
+                                       , es <- der_lfoc gl1 b gr p ]
+
+der_lfoc gl (DivR b a) gr p = [ e : es | (gr1, gr2) <- splits gr
+                                       , e  <- der_rinv gr1 a
+                                       , es <- der_lfoc gl b gr2 p ]
+
+-- all derivations of a sentence, we use the convention that the i-th word w becomes the variable w_i
+derivations :: Lexicon sem -> [String] -> [LExp]
+derivations lex ws = [ e | ts <- typings lex ws, e <- der_rinv (zip names ts) (stp lex) ]
+  where names = [ w ++ "_" ++ show i | (w, i) <- zip ws [1 ..] ]

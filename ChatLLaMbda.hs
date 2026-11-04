@@ -3,6 +3,7 @@ import System.IO
 import Control.Exception
 
 import LTypes
+import LExp
 import qualified Lambek
 
 import Parser
@@ -22,10 +23,14 @@ repl elx phandle = do
   line <- getLine
   -- split it up into "standardized" words
   let ws = map stdize $ words line
-  -- test if the string of words is a grammatical sentence according to the lexicon
-  if Lambek.isGrammatical elx ws
-    then putStrLn "That is a well-formed sentence!"
-    else putStrLn "That is not a well-formed sentence"
+  -- compute all derivations of the sentence
+  let ds = Lambek.derivations elx ws
+  -- no derivation means the sentence is not grammatical
+  if null ds
+    then putStrLn "This is not a well formed sentence"
+    else do
+      putStrLn "The sentence can be derived as follows:"
+      putStr (unlines [ "   " ++ prettyLExp d | d <- ds ])
   -- repeat
   repl elx phandle
       
