@@ -43,14 +43,11 @@ repl elx phandle = do
     -- evaluate a reading in Python and print its value
     showReading ambiguous (term, meanings) = do
       if ambiguous then putStr ("Sense [" ++ prettyLExp term ++ "]: ") else return ()
-      case Lambek.toPython meanings term of
-        Left err -> putStrLn ("Evaluation error: " ++ err)
-        Right code -> do
-          result <- try (runPythonCode phandle (PCode ("try:\n  print(" ++ text code ++ ")\nexcept Exception as e:\n  print('Evaluation error: ' + str(e))\n")))
-                    :: IO (Either IOError String)
-          case result of
-            Left err -> putStrLn ("Evaluation error: " ++ show err)
-            Right value -> putStrLn value
+      result <- try (runPythonCode phandle (PCode ("try:\n  print(" ++ Lambek.toPython meanings term ++ ")\nexcept Exception as e:\n  print('Evaluation error: ' + str(e))\n")))
+                :: IO (Either IOError String)
+      case result of
+        Left err -> putStrLn ("Evaluation error: " ++ show err)
+        Right value -> putStrLn value
 
 main = do
   -- send console output immediately to the user
