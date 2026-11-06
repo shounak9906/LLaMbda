@@ -4,6 +4,8 @@ module Lambek where
 
 import LTypes
 import LExp
+import Data.List (intercalate, nub)
+import PySupport (PythonCode(..))
 
 -- This is the convention we will use :
 
@@ -89,3 +91,47 @@ der_lfoc gl (DivR b a) gr p = [ e : es | (gr1, gr2) <- splits gr
 derivations :: Lexicon sem -> [String] -> [LExp]
 derivations lex ws = [ e | ts <- typings lex ws, e <- der_rinv (zip names ts) (stp lex) ]
   where names = [ w ++ "_" ++ show i | (w, i) <- zip ws [1 ..] ]
+
+-- Part 3: The goal is to keep each term together with its chosen lexical meanings.
+
+readings :: Lexicon sem -> [String] -> [(LExp, [(Var, sem)])]
+readings lex ws =
+  [ (term, zip names values)
+  | chosen <- entries ws
+  , let (types, values) = unzip chosen
+  , term <- der_rinv (zip names types) (stp lex)
+  ]
+  where
+    names = [w ++ "_" ++ show i | (w, i) <- zip ws [1 :: Int ..]]
+    entries [] = [[]]
+    entries (w:rest) =
+      [(tp, value) : others
+      | (word, tp, value) <- items lex, word == w
+      , others <- entries rest]
+
+-- We translate the terms to Python. Lexical values are evaluated outside the generated lambdas, so their names still refer to the world database.
+toPython :: [(Var, PythonCode)] -> LExp -> Either String PythonCode
+toPython env term
+  | length names /= length (nub names) = Left "Duplicate lexical variable"
+  | otherwise = do
+      body <- translate [] 0 term
+      return (PCode ("(lambda _lex: " ++ body ++ ")([" ++ values ++ "])"))
+  where
+    names = map fst env
+    positions = zip names [0 :: Int ..]
+    values = intercalate ", " ["(" ++ text value ++ ")" | (_, value) <- env]
+
+    translate :: [(Var, String)] -> Int -> LExp -> Either String String
+    translate bound _ (V x) = case lookup x bound of
+      Just name -> Right name
+      Nothing -> case lookup x positions of
+        Just i -> Right ("_lex[" ++ show i ++ "]")
+        Nothing -> Left ("No meaning for " ++ x)
+    translate bound depth (A f a) = do
+      function <- translate bound depth f
+      argument <- translate bound depth a
+      return ("(" ++ function ++ ")(" ++ argument ++ ")")
+    translate bound depth (L x body) = do
+      let name = "_arg" ++ show depth
+      result <- translate ((x, name) : bound) (depth + 1) body
+      return ("(lambda " ++ name ++ ": " ++ result ++ ")")
