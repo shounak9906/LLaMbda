@@ -25,9 +25,10 @@ repl elx phandle = do
     line <- getLine
     if line == ":quit" then return () else do
       -- split it up into "standardized" words
-      let ws = map stdize $ words line
+      let ws = map stdize $ words $ map (\c -> if c == '?' then ' ' else c) line
       -- compute all derivations with their lexical meanings
       let ds = Lambek.readings elx ws
+            ++ Lambek.readings (elx { stp = Atm "q" }) ws
       -- no derivation means the sentence is not grammatical
       if null ds
         then putStrLn "This is not a well formed sentence"

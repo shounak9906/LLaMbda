@@ -33,3 +33,5 @@ A        : ((s / np) \ s) / n   = lambda q : lambda p : any (p(x) and q(x) for x
 
 And      : s \ (s / s)          = lambda x : lambda y : x and y.
 And      : adj \ (adj / adj)    = lambda p : lambda q : lambda x : p(x) and q(x).
+
+Who : q / (np \ s) = lambda p : [x for x in animals if p(x)].
