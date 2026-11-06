@@ -29,25 +29,28 @@ repl elx phandle = do
       -- compute all derivations with their lexical meanings
       let ds = Lambek.readings elx ws
             ++ Lambek.readings (elx { stp = Atm "q" }) ws
-      -- no derivation means the sentence is not grammatical
-      if null ds
-        then putStrLn "This is not a well formed sentence"
-        else do
-          putStrLn "The sentence can be derived as follows:"
-          mapM_ showReading ds
+      -- no derivation, sentence is not grammatical.
+      -- >1 derivation means it is ambiguous
+      case ds of
+        []  -> putStrLn "That is not a well-formed sentence"
+        [d] -> showReading False d
+        _   -> do
+          putStrLn "That sentence is ambiguous"
+          mapM_ (showReading True) ds
       -- repeat
       repl elx phandle
   where
-    showReading (term, meanings) = do
-      putStrLn ("   " ++ prettyLExp term)
+    -- evaluate a reading in Python and print its value
+    showReading ambiguous (term, meanings) = do
+      if ambiguous then putStr ("Sense [" ++ prettyLExp term ++ "]: ") else return ()
       case Lambek.toPython meanings term of
-        Left err -> putStrLn ("   Evaluation error: " ++ err)
+        Left err -> putStrLn ("Evaluation error: " ++ err)
         Right code -> do
-          result <- try (runPythonCode phandle (PCode ("print(" ++ text code ++ ")")))
+          result <- try (runPythonCode phandle (PCode ("try:\n  print(" ++ text code ++ ")\nexcept Exception as e:\n  print('Evaluation error: ' + str(e))\n")))
                     :: IO (Either IOError String)
           case result of
-            Left err -> putStrLn ("   Evaluation error: " ++ show err)
-            Right value -> putStrLn ("   Result: " ++ value)
+            Left err -> putStrLn ("Evaluation error: " ++ show err)
+            Right value -> putStrLn value
 
 main = do
   -- send console output immediately to the user
@@ -60,7 +63,7 @@ main = do
   phandle <- launchPython db
   -- start the read-eval-print loop
   putStrLn "Starting chat..."
-  repl elx phandle `finally` closePython phandle
+  repl elx phandle
   where
     getDB :: IO PythonCode
     getDB = do
