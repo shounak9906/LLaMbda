@@ -4,7 +4,6 @@ module Lambek where
 
 import LTypes
 import LExp
-import Data.List (intercalate, nub)
 import PySupport (PythonCode(..))
 
 -- This is the convention we will use :
@@ -39,16 +38,14 @@ dec_lfoc gl (DivL a b) gr p = or [ dec_rinv gl2 a && dec_lfoc gl1 b gr p
 dec_lfoc gl (DivR b a) gr p = or [ dec_rinv gr1 a && dec_lfoc gl b gr2 p
                                  | (gr1, gr2) <- splits gr ]
 
--- grammaticality
+-- all ways of choosing a lexical entry (type and meaning) for every word of a sentence
+choices :: Lexicon sem -> [String] -> [[(LTp, sem)]]
+choices _   []     = [[]]
+choices lex (w:ws) = [ (t, s) : es | (w', t, s) <- items lex, w' == w, es <- choices lex ws ]
 
--- all the types the lexicon gives to a word
-typesOf :: Lexicon sem -> String -> [LTp]
-typesOf lex w = [ t | (w', t, _) <- items lex, w' == w ]
-
--- all ways of choosing one type for each word of a sentence
+-- all ways of choosing a type for every word of a sentence
 typings :: Lexicon sem -> [String] -> [[LTp]]
-typings _   []     = [[]]
-typings lex (w:ws) = [ t : ts | t <- typesOf lex w, ts <- typings lex ws ]
+typings lex ws = map (map fst) (choices lex ws)
 
 -- checking grammaticality
 isGrammatical :: Lexicon sem -> [String] -> Bool
@@ -87,51 +84,27 @@ der_lfoc gl (DivR b a) gr p = [ e : es | (gr1, gr2) <- splits gr
                                        , e  <- der_rinv gr1 a
                                        , es <- der_lfoc gl b gr2 p ]
 
--- all derivations of a sentence, we use the convention that the i-th word w becomes the variable w_i
-derivations :: Lexicon sem -> [String] -> [LExp]
-derivations lex ws = [ e | ts <- typings lex ws, e <- der_rinv (zip names ts) (stp lex) ]
-  where names = [ w ++ "_" ++ show i | (w, i) <- zip ws [1 ..] ]
-
 -- Part 3: The goal is to keep each term together with its chosen lexical meanings.
 
+-- the variable of each word: the i-th word w becomes w_i
+wordVars :: [String] -> [Var]
+wordVars ws = [ w ++ "_" ++ show i | (w, i) <- zip ws [1 ..] ]
+
+-- all derivations of a sentence, each paired with the meaning of every word
 readings :: Lexicon sem -> [String] -> [(LExp, [(Var, sem)])]
-readings lex ws =
-  [ (term, zip names values)
-  | chosen <- entries ws
-  , let (types, values) = unzip chosen
-  , term <- der_rinv (zip names types) (stp lex)
-  ]
-  where
-    names = [w ++ "_" ++ show i | (w, i) <- zip ws [1 :: Int ..]]
-    entries [] = [[]]
-    entries (w:rest) =
-      [(tp, value) : others
-      | (word, tp, value) <- items lex, word == w
-      , others <- entries rest]
+readings lex ws = [ (e, zip xs (map snd es)) | es <- choices lex ws
+                                             , e  <- der_rinv (zip xs (map fst es)) (stp lex) ]
+    where xs = wordVars ws
 
--- We translate the terms to Python. Lexical values are evaluated outside the generated lambdas, so their names still refer to the world database.
-toPython :: [(Var, PythonCode)] -> LExp -> Either String PythonCode
-toPython env term
-  | length names /= length (nub names) = Left "Duplicate lexical variable"
-  | otherwise = do
-      body <- translate [] 0 term
-      return (PCode ("(lambda _lex: " ++ body ++ ")([" ++ values ++ "])"))
-  where
-    names = map fst env
-    positions = zip names [0 :: Int ..]
-    values = intercalate ", " ["(" ++ text value ++ ")" | (_, value) <- env]
+-- all derivations of a sentence
+derivations :: Lexicon sem -> [String] -> [LExp]
+derivations lex ws = [ e | (e, _) <- readings lex ws ]
 
-    translate :: [(Var, String)] -> Int -> LExp -> Either String String
-    translate bound _ (V x) = case lookup x bound of
-      Just name -> Right name
-      Nothing -> case lookup x positions of
-        Just i -> Right ("_lex[" ++ show i ++ "]")
-        Nothing -> Left ("No meaning for " ++ x)
-    translate bound depth (A f a) = do
-      function <- translate bound depth f
-      argument <- translate bound depth a
-      return ("(" ++ function ++ ")(" ++ argument ++ ")")
-    translate bound depth (L x body) = do
-      let name = "_arg" ++ show depth
-      result <- translate ((x, name) : bound) (depth + 1) body
-      return ("(lambda " ++ name ++ ": " ++ result ++ ")")
+-- translate a term to Python, replacing each word variable by its meaning.
+toPython :: [(Var, PythonCode)] -> LExp -> String
+toPython env (V x)  = case lookup x env of 
+                        Just code -> "(" ++ text code ++ ")"
+                        Nothing   -> "_" ++ x
+toPython env (A t u) = "(" ++ toPython env t ++ ")(" ++ toPython env u ++ ")"
+toPython env (L x t) = "(lambda _" ++ x ++ ": " ++ toPython env t ++ ")"
+
